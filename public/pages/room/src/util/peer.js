@@ -7,7 +7,21 @@ class PeerBuilder {
         this.onCallReceived = defaultFunctionValue
         this.onConnectionOpened = defaultFunctionValue
         this.onPeerStreamReceived = defaultFunctionValue
+        this.onCallError = defaultFunctionValue
+        this.onCallClose = defaultFunctionValue
     }
+
+    setOnCallError(fn) {
+        this.onCallError = fn
+
+        return this
+    }
+
+    setOnCallClose(fn) {
+        this.onCallClose = fn
+
+        return this
+    }   
 
     setOnError(fn) {
         this.onError = fn
@@ -35,17 +49,41 @@ class PeerBuilder {
 
     _prepareCallEvent(call) {
         call.on('stream', stream => this.onPeerStreamReceived(call, stream))
-
+        call.on('error', error => this.onCallError(call, error))
+        call.on('close', _ => this.onCallClose(call))
         this.onCallReceived(call)
     }
 
+    // adicionar os comportamentos dos eventos de call tambem pra quem ligar!
+    _preparePeerInstanceFunction(peerModule) {
+        class PeerCustomModule extends peerModule {}
+
+        const peerCall = PeerCustomModule.prototype.call
+        const context = this
+        PeerCustomModule.prototype.call = function (id, stream) {
+            const call = peerCall.apply(this, [id, stream])
+            // Aqui acontece a magia, interceptamos o call e adicionamos todos os eventos da chamada pra quem liga tambem.
+            context._prepareCallEvent(call)
+
+            return call
+        }
+
+        return PeerCustomModule
+    }
+
     build() {
-        //const peer = new Peer(...this.peerConfig)  Não deu certo desta forma olhando para o app tive que fazer como abaixo
-        const peer = new Peer(undefined, {
-              port: 9000,
-              host: 'localhost',
-              path: '/'
+        const PeerCustomInstance = this._preparePeerInstanceFunction(Peer)
+        const peer = new PeerCustomInstance(undefined, {
+            port: 9000,
+            host: 'localhost',
+            path: '/'
         })
+        //const peer = new Peer(...this.peerConfig)  Não deu certo desta forma olhando para o app tive que fazer como abaixo
+        //const peer = new Peer(undefined, {
+        //      port: 9000,
+        //      host: 'localhost',
+        //      path: '/'
+        //})
 
         peer.on('error', this.onError)
         peer.on('call', this._prepareCallEvent.bind(this))
